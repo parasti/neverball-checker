@@ -34,10 +34,10 @@ if (!fs.existsSync(setFile)) {
 /**
  * @typedef {Object} AssetBundle
  * 
- * @property {string[]} imageAssets 
- * @property {string[]} audioAssets 
- * @property {string[]} solAssets 
- * @property {string[]} materialAssets
+ * @property {Set<string>} imageAssets
+ * @property {Set<string>} audioAssets
+ * @property {Set<string>} solAssets
+ * @property {Set<string>} materialAssets
  * 
  * @typedef {Object} TypedAsset
  * 
@@ -80,8 +80,10 @@ function getSystemFile(path) {
  * @returns AssetBundle
  */
 function getAssetsFromSetFile(filename) {
-  const imageAssets = [];
-  const solAssets = [];
+  /** @type {Set<string>} */
+  const imageAssets = new Set();
+  /** @type {Set<string>} */
+  const solAssets = new Set();
 
   const content = fs.readFileSync(filename, {encoding: 'utf-8'});
   const lines = content.split(/\r?\n/);
@@ -89,20 +91,20 @@ function getAssetsFromSetFile(filename) {
   const sols = lines.slice(5);
 
   if (shot) {
-    imageAssets.push(shot);
+    imageAssets.add(shot);
   }
 
   for (const sol of sols) {
     if (sol) {
-      solAssets.push(sol);
+      solAssets.add(sol);
     }
   }
 
   return {
     imageAssets,
-    audioAssets: [],
+    audioAssets: new Set(),
     solAssets,
-    materialAssets: [],
+    materialAssets: new Set(),
   };
 }
 
@@ -111,10 +113,14 @@ function getAssetsFromSetFile(filename) {
  * @returns AssetBundle
  */
 function getAssetsFromSolFile(path) {
-  const imageAssets = [];
-  const audioAssets = [];
-  const solAssets = [];
-  const materialAssets = [];
+  /** @type {Set<string>} */
+  const imageAssets = new Set();
+  /** @type {Set<string>} */
+  const audioAssets = new Set();
+  /** @type {Set<string>} */
+  const solAssets = new Set();
+  /** @type {Set<string>} */
+  const materialAssets = new Set();
 
   try {
     const filename = getSystemFile(path);
@@ -126,28 +132,28 @@ function getAssetsFromSolFile(path) {
     const sol = Solid(fs.readFileSync(filename));
 
     if (sol.dicts.shot) {
-      imageAssets.push(sol.dicts.shot);
+      imageAssets.add(sol.dicts.shot);
     }
 
     if (sol.dicts.song) {
-      audioAssets.push(sol.dicts.song);
+      audioAssets.add(sol.dicts.song);
     }
 
     if (sol.dicts.grad) {
-      imageAssets.push(sol.dicts.grad);
+      imageAssets.add(sol.dicts.grad);
     }
 
     if (sol.dicts.back) {
-      solAssets.push(sol.dicts.back);
+      solAssets.add(sol.dicts.back);
     }
 
     for (const mtrl of sol.mtrls) {
       if (!(mtrl.f === 'NULL' || mtrl.f === 'default')) {
-        materialAssets.push(mtrl.f);
+        materialAssets.add(mtrl.f);
       }
     }
   } catch (e) {
-    // console.error(e);
+    console.error(e);
   }
 
   return {
@@ -163,18 +169,18 @@ function getAssetsFromSolFile(path) {
  * @returns {AssetBundle} combined assets
  */
 function getAssetsRecursively(mainAssets) {
-  let combinedImages = mainAssets.imageAssets || [];
-  let combinedAudios = mainAssets.audioAssets || [];
-  let combinedSols = mainAssets.solAssets || [];
-  let combinedMaterials = mainAssets.materialAssets || [];
+  let combinedImages = mainAssets.imageAssets || new Set();
+  let combinedAudios = mainAssets.audioAssets || new Set();
+  let combinedSols = mainAssets.solAssets || new Set();
+  let combinedMaterials = mainAssets.materialAssets || new Set();
   
   for (const sol of mainAssets.solAssets) {
     const childAssets = getAssetsRecursively(getAssetsFromSolFile(sol));
 
-    combinedImages = combinedImages.concat(childAssets.imageAssets);
-    combinedAudios = combinedAudios.concat(childAssets.audioAssets);
-    combinedSols = combinedSols.concat(childAssets.solAssets);
-    combinedMaterials = combinedMaterials.concat(childAssets.materialAssets);
+    combinedImages = [...combinedImages, ...childAssets.imageAssets];
+    combinedAudios = [...combinedAudios, ...childAssets.audioAssets];
+    combinedSols = [...combinedSols, ...childAssets.solAssets];
+    combinedMaterials = [...combinedMaterials, ...childAssets.materialAssets];
   }
 
   return {
@@ -253,11 +259,6 @@ function getAssetsRecursivelyFromSetFile(filename) {
   /** @type {AssetBundle} */
   const assets = getAssetsRecursively(getAssetsFromSetFile(filename));
   
-  assets.imageAssets = deduplicate(assets.imageAssets);
-  assets.audioAssets = deduplicate(assets.audioAssets);
-  assets.solAssets = deduplicate(assets.solAssets);
-  assets.materialAssets = deduplicate(assets.materialAssets);
-
   return assets;
 }
 
@@ -266,28 +267,28 @@ function getAssetsRecursivelyFromSetFile(filename) {
  * 
  * @param {AssetBundle} assets
  * 
- * @returns {TypedAsset[]}
+ * @returns {{foundAssets: Set<TypedAsset>, missingAssets: Set<TypedAsset>}}
  */
 function checkAssets(assets) {
-  /** @type {TypedAsset[]} */
-  const foundAssets = [];
+  /** @type {Set<TypedAsset>} */
+  const foundAssets = new Set();
 
-  /** @type {TypedAsset[]} */
-  const missingAssets = [];
+  /** @type {Set<TypedAsset>} */
+  const missingAssets = new Set();
 
-  /** @type {string[]} */
-  let objAssets = [];
+  /** @type {Set<string>} */
+  let objAssets = new Set();
 
   for (const path of assets.imageAssets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'image',
         path,
       });
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'image',
         path,
       });
@@ -298,12 +299,12 @@ function checkAssets(assets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'audio',
         path,
       });
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'audio',
         path,
       });
@@ -314,12 +315,12 @@ function checkAssets(assets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'sol',
         path,
       });
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'sol',
         path,
       });
@@ -329,23 +330,23 @@ function checkAssets(assets) {
     const mapFile = getSystemFile(mapPath);
 
     if (!mapFile) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'map',
         path, // SOL path
       });
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'map',
         path: mapPath,
       });
 
-      // Read OBJs... They are anonymous in the SOL, but do exist in the map.
+      // Read the .map file... OBJs are anonymous in the SOL, but do exist in the map.
 
       const mapData = fs.readFileSync(mapFile);
       const matches = mapData.toString().matchAll(/"model" +"([^"]+)"/g);
       const mapObjs = Array.from(matches).map(match => match[1]);
 
-      objAssets = objAssets.concat(mapObjs);
+      objAssets = [...objAssets, ...mapObjs];
     }
   }
 
@@ -353,12 +354,12 @@ function checkAssets(assets) {
     const mtrlPath = findMaterialPath(path);
 
     if (!mtrlPath) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'material',
         path,
       });
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'material',
         path,
       });
@@ -367,30 +368,28 @@ function checkAssets(assets) {
     const mtrlImagePath = findMaterialImagePath(path);
 
     if (!mtrlImagePath) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'material-image',
         path, // Material path
       })
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'material-image',
         path: mtrlImagePath,
       })
     }
   }
 
-  objAssets = deduplicate(objAssets);
-
   for (const path of objAssets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.push({
+      missingAssets.add({
         type: 'obj',
         path
       });
     } else {
-      foundAssets.push({
+      foundAssets.add({
         type: 'obj',
         path
       });
@@ -403,7 +402,7 @@ function checkAssets(assets) {
 /**
  * Print assets to console.
  * 
- * @param {TypedAsset[]} assets 
+ * @param {Set<TypedAsset>} assets 
  */
 function dumpTypedAssets(assets) {
   for (const asset of assets) {
@@ -415,7 +414,7 @@ const assets = getAssetsRecursivelyFromSetFile(setFile);
 
 const {missingAssets} = checkAssets(assets);
 
-if (missingAssets.length) {
+if (missingAssets.size) {
   console.error('Missing assets, listing them and aborting.');
   dumpTypedAssets(missingAssets);
   process.exit(1);
