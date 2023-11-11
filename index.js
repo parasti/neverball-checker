@@ -312,15 +312,22 @@ function checkAssets(assets) {
   }
 
   for (const path of assets.solAssets) {
-    const filename = getSystemFile(path);
+    try {
+      const filename = getSystemFile(path);
 
-    if (!filename) {
-      missingAssets.add({
+      if (!filename) {
+        throw `SOL file ${path} not found`;
+      }
+
+      // Also check if we can load the SOL. This will throw an exception if not.
+      const sol = Solid(fs.readFileSync(filename));
+
+      foundAssets.add({
         type: 'sol',
         path,
       });
-    } else {
-      foundAssets.add({
+    } catch (e) {
+      missingAssets.add({
         type: 'sol',
         path,
       });
@@ -403,10 +410,11 @@ function checkAssets(assets) {
  * Print assets to console.
  * 
  * @param {Set<TypedAsset>} assets 
+ * @param {string?} prefix
  */
-function dumpTypedAssets(assets) {
+function dumpTypedAssets(assets, prefix = '') {
   for (const asset of assets) {
-    console.log(asset.type + ':' + asset.path);
+    console.log(prefix + asset.type + ':' + asset.path);
   }
 }
 
@@ -415,8 +423,7 @@ const assets = getAssetsRecursivelyFromSetFile(setFile);
 const {missingAssets} = checkAssets(assets);
 
 if (missingAssets.size) {
-  console.error('Missing assets, listing them and aborting.');
-  dumpTypedAssets(missingAssets);
+  dumpTypedAssets(missingAssets, 'not-found:');
   process.exit(1);
 } else {
   console.log(Array.from(foundAddonFilenames.values()).join('\n'));
