@@ -347,7 +347,7 @@ function checkAssets(assets) {
         path: mapPath,
       });
 
-      // Read the .map file... OBJs are anonymous in the SOL, but do exist in the map.
+      // Find oBJ assets. OBJs are anonymous in the SOL, so we're parsing the .map.
 
       const mapData = fs.readFileSync(mapFile);
       const matches = mapData.toString().matchAll(/"model" +"([^"]+)"/g);
