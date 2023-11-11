@@ -38,11 +38,6 @@ if (!fs.existsSync(setFile)) {
  * @property {Set<string>} audioAssets
  * @property {Set<string>} solAssets
  * @property {Set<string>} materialAssets
- * 
- * @typedef {Object} TypedAsset
- * 
- * @property {string} type
- * @property {string} path
  */
 
 /** @type {Map<string,string>} */
@@ -177,10 +172,10 @@ function getAssetsRecursively(mainAssets) {
   for (const sol of mainAssets.solAssets) {
     const childAssets = getAssetsRecursively(getAssetsFromSolFile(sol));
 
-    combinedImages = [...combinedImages, ...childAssets.imageAssets];
-    combinedAudios = [...combinedAudios, ...childAssets.audioAssets];
-    combinedSols = [...combinedSols, ...childAssets.solAssets];
-    combinedMaterials = [...combinedMaterials, ...childAssets.materialAssets];
+    combinedImages = new Set([...combinedImages, ...childAssets.imageAssets]);
+    combinedAudios = new Set([...combinedAudios, ...childAssets.audioAssets]);
+    combinedSols = new Set([...combinedSols, ...childAssets.solAssets]);
+    combinedMaterials = new Set([...combinedMaterials, ...childAssets.materialAssets]);
   }
 
   return {
@@ -257,13 +252,13 @@ function getAssetsRecursivelyFromSetFile(filename) {
  * 
  * @param {AssetBundle} assets
  * 
- * @returns {{foundAssets: Set<TypedAsset>, missingAssets: Set<TypedAsset>}}
+ * @returns {{foundAssets: Set<string>, missingAssets: Set<string>}}
  */
 function checkAssets(assets) {
-  /** @type {Set<TypedAsset>} */
+  /** @type {Set<string>} */
   const foundAssets = new Set();
 
-  /** @type {Set<TypedAsset>} */
+  /** @type {Set<string>} */
   const missingAssets = new Set();
 
   /** @type {Set<string>} */
@@ -273,15 +268,9 @@ function checkAssets(assets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.add({
-        type: 'image',
-        path,
-      });
+      missingAssets.add(`image:${path}`);
     } else {
-      foundAssets.add({
-        type: 'image',
-        path,
-      });
+      foundAssets.add(`image:${path}`);
     }
   }
 
@@ -289,15 +278,9 @@ function checkAssets(assets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.add({
-        type: 'audio',
-        path,
-      });
+      missingAssets.add(`audio:${path}`);
     } else {
-      foundAssets.add({
-        type: 'audio',
-        path,
-      });
+      foundAssets.add(`audio:${path}`);
     }
   }
 
@@ -312,30 +295,18 @@ function checkAssets(assets) {
       // Also check if we can load the SOL. This will throw an exception if not.
       const sol = Solid(fs.readFileSync(filename));
 
-      foundAssets.add({
-        type: 'sol',
-        path,
-      });
+      foundAssets.add(`sol:${path}`);
     } catch (e) {
-      missingAssets.add({
-        type: 'sol',
-        path,
-      });
+      missingAssets.add(`sol:${path}`);
     }
 
     const mapPath = path.replace(/\.sol$/, '.map');
     const mapFile = getSystemFile(mapPath);
 
     if (!mapFile) {
-      missingAssets.add({
-        type: 'map',
-        path, // SOL path
-      });
+      missingAssets.add(`map:${path}`); // SOL path
     } else {
-      foundAssets.add({
-        type: 'map',
-        path: mapPath,
-      });
+      foundAssets.add(`map:${mapPath}`);
 
       // Find oBJ assets. OBJs are anonymous in the SOL, so we're parsing the .map.
 
@@ -343,7 +314,7 @@ function checkAssets(assets) {
       const matches = mapData.toString().matchAll(/"model" +"([^"]+)"/g);
       const mapObjs = Array.from(matches).map(match => match[1]);
 
-      objAssets = [...objAssets, ...mapObjs];
+      objAssets = new Set([...objAssets, ...mapObjs]);
     }
   }
 
@@ -351,29 +322,17 @@ function checkAssets(assets) {
     const mtrlPath = findMaterialPath(path);
 
     if (!mtrlPath) {
-      missingAssets.add({
-        type: 'material',
-        path,
-      });
+      missingAssets.add(`material:${path}`);
     } else {
-      foundAssets.add({
-        type: 'material',
-        path,
-      });
+      foundAssets.add(`material:${path}`);
     }
 
     const mtrlImagePath = findMaterialImagePath(path);
 
     if (!mtrlImagePath) {
-      missingAssets.add({
-        type: 'material-image',
-        path, // Material path
-      })
+      missingAssets.add(`material-image:${path}`); // Material path
     } else {
-      foundAssets.add({
-        type: 'material-image',
-        path: mtrlImagePath,
-      })
+      foundAssets.add(`material-image:${mtrlImagePath}`);
     }
   }
 
@@ -381,31 +340,13 @@ function checkAssets(assets) {
     const filename = getSystemFile(path);
 
     if (!filename) {
-      missingAssets.add({
-        type: 'obj',
-        path
-      });
+      missingAssets.add(`obj:${path}`);
     } else {
-      foundAssets.add({
-        type: 'obj',
-        path
-      });
+      foundAssets.add(`obj:${path}`);
     }
   }
 
   return {foundAssets, missingAssets};
-}
-
-/**
- * Print assets to console.
- * 
- * @param {Set<TypedAsset>} assets 
- * @param {string?} prefix
- */
-function dumpTypedAssets(assets, prefix = '') {
-  for (const asset of assets) {
-    console.log(prefix + asset.type + ':' + asset.path);
-  }
 }
 
 const assets = getAssetsRecursivelyFromSetFile(setFile);
@@ -413,7 +354,9 @@ const assets = getAssetsRecursivelyFromSetFile(setFile);
 const {missingAssets} = checkAssets(assets);
 
 if (missingAssets.size) {
-  dumpTypedAssets(missingAssets, 'not-found:');
+  for (const asset of missingAssets) {
+    console.log('not-found:' + asset);
+  }
   process.exit(1);
 } else {
   console.log(Array.from(foundAddonFilenames.values()).join('\n'));
