@@ -240,16 +240,6 @@ function findMaterialImagePath(mtrl) {
 }
 
 /**
- * Remove duplicates from an array using strict comparison.
- * 
- * @param {Array} array 
- * @returns {Array}
- */
-function deduplicate(array) {
-  return array.filter((item, index) => index === array.indexOf(item));
-}
-
-/**
  * Recursively find all assets that a level set requires.
  * 
  * @param {string} filename set file name
