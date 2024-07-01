@@ -1,14 +1,24 @@
 {
-  "name": "checker",
+  "name": "neverball-checker",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/parasti/neverball-checker.git"
+  },
+  "keywords": [
+    "neverball",
+    "addons",
+    "validator",
+    "checker",
+    "game"
+  ],
+  "author": "Jānis Rūcis",
+  "license": "GPL-3.0+",
   "dependencies": {
     "neverball-solid": "^1.0.0"
   }
