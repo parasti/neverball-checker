@@ -38,6 +38,9 @@ const foundAddonFilenames = new Map();
 /** @type {Map<string,string>} */
 const foundBaseFilenames = new Map();
 
+/** @type {Set<string>} */
+const foundBaseOverrides = new Set();
+
 // HACK: include the set file itself.
 foundAddonFilenames.set(setFile, addonDir + '/' + setFile);
 
@@ -53,6 +56,11 @@ function getSystemFile(path) {
 
     if (fs.existsSync(addonPath)) {
         foundAddonFilenames.set(path, addonPath);
+
+        if (fs.existsSync(basePath)) {
+            foundBaseOverrides.add(addonPath);
+        }
+
         return addonPath;
     } else if (fs.existsSync(basePath)) {
         foundBaseFilenames.set(path, basePath);
@@ -101,5 +109,10 @@ if (missingAssets.size) {
     }
     process.exit(1);
 } else {
-    console.log(Array.from(foundAddonFilenames.values()).join('\n'));
+
+    for (const filename of foundAddonFilenames.values()) {
+        if (!foundBaseOverrides.has(filename)) {
+            console.log(filename);
+        }
+    }
 }
