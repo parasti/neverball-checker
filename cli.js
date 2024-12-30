@@ -5,11 +5,12 @@
 const process = require('node:process');
 const path = require('node:path');
 const fs = require('node:fs');
+const archiver = require('archiver');
 
 const Checker = require('.');
 
 if (process.argv.length < 4) {
-    console.error('Usage: %s neverball-data set-file.txt', process.argv[1]);
+    console.error('Usage: %s neverball-data set-file.txt [--zip]', process.argv[1]);
     process.exit(1);
 }
 
@@ -21,6 +22,9 @@ const setFile = path.basename(process.argv[3]);
 
 /** @type {string} Path to addon data directory, derived from {@link setFile} */
 const addonDir = path.dirname(process.argv[3]);
+
+/** @type {boolean} Create a zip file. */
+const createZip = (process.argv.length > 4 && process.argv[4] === '--zip');
 
 if (!fs.existsSync(baseDir)) {
     console.error('Base directory does not exist.');
@@ -109,10 +113,36 @@ if (missingAssets.size) {
     }
     process.exit(1);
 } else {
+    let archive = null;
+
+    if (createZip) {
+        archive = archiver('zip', {
+            zlib: {
+                level: 9,
+            }
+        });
+
+        const archivePath = path.basename(setFile, '.txt') + '.zip';
+        const archiveStream = fs.createWriteStream(archivePath);
+
+        archive.pipe(archiveStream);
+    }
 
     for (const filename of foundAddonFilenames.values()) {
         if (!foundBaseOverrides.has(filename)) {
             console.log(filename);
+
+            if (archive) {
+                const compatFilename = filename.replace(/^\.\//, '');
+
+                archive.file(addonDir + '/' + compatFilename, {
+                    name: compatFilename,
+                });
+            }
         }
+    }
+
+    if (archive) {
+        archive.finalize();
     }
 }

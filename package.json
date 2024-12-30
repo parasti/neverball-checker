@@ -20,6 +20,7 @@
   "author": "Jānis Rūcis",
   "license": "GPL-3.0+",
   "dependencies": {
+    "archiver": "^7.0.1",
     "neverball-solid": "^1.0.0"
   }
 }
