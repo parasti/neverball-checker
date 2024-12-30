@@ -73,11 +73,11 @@ function getSystemFile(path) {
 /**
  * Read contents of a Neverball path.
  * 
- * @param {string} path Neverball path
+ * @param {import('.').Asset} asset Neverball asset
  * @returns {Buffer?}
  */
-function readAsset(path) {
-    const filename = getSystemFile(path);
+function readAsset(asset) {
+    const filename = getSystemFile(asset.path);
 
     try {
         return fs.readFileSync(filename);
@@ -104,8 +104,8 @@ const checker = Checker({
 const { missingAssets } = checker.check(setFile);
 
 if (missingAssets.size) {
-    for (const asset of missingAssets) {
-        console.log('not-found:' + asset);
+    for (const [_, asset] of missingAssets) {
+        console.log('not-found:' + asset.type + ':' + asset.path + ':' + (asset.parent ? asset.parent.path : '_'));
     }
     process.exit(1);
 } else {
