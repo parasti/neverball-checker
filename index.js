@@ -2,347 +2,299 @@
 
 const Solid = require('neverball-solid');
 
-/**
- * @typedef {Object} Asset
- * 
- * @property {string} path
- * @property {Asset} [parent]
- * @property {string} [type]
- */
+// --- Pure parsers ---
 
 /**
- * @typedef {Map<string,Asset>} AssetList
+ * Parse a SOL file buffer and return its direct asset dependencies.
+ * The path argument is unused by the default implementation; injected parsers
+ * may use it to look up precomputed data instead of parsing the buffer.
+ *
+ * @param {string} path Neverball path of the SOL file
+ * @param {Buffer} buffer
+ * @returns {{ images: string[], audio: string[], sols: string[], materials: string[] }}
  */
+function parseSol(path, buffer) {
+  const images = [];
+  const audio = [];
+  const sols = [];
+  const materials = [];
 
-/**
- * @typedef {Object} AssetBundle
- * 
- * @property {AssetList} imageAssets
- * @property {AssetList} audioAssets
- * @property {AssetList} solAssets
- * @property {AssetList} materialAssets
- */
+  try {
+    const sol = Solid(buffer);
 
-/**
- * @callback ReadAssetFunction
- * @param {Asset} asset
- * @returns {Buffer?}
- * 
- * @callback AssetExistsFunction
- * @param {string} path
- * @returns {boolean}
- */
+    if (sol.dicts.shot) images.push(sol.dicts.shot);
+    if (sol.dicts.grad) images.push(sol.dicts.grad);
+    if (sol.dicts.song) audio.push(sol.dicts.song);
+    if (sol.dicts.back) sols.push(sol.dicts.back);
 
-/**
- * @param {{readAsset: ReadAssetFunction, assetExists: AssetExistsFunction}} opts 
- */
-module.exports = function Checker(opts) {
-  const { readAsset, assetExists } = opts;
-
-  /**
-   * Create an asset list.
-   * 
-   * @returns {AssetList}
-   */
-  function createAssetList() {
-    return new Map();
-  }
-
-  /**
-   * Add to asset list.
-   * 
-   * @param {AssetList} list asset list
-   * @param {string} path Neverball path of asset
-   * @param {Asset} [parent] parent asset
-   * @param {string} [type] asset type
-   */
-  function addAssetToList(list, path, parent = null, type = null) {
-    list.set(path, {
-      path,
-      parent,
-      type,
-    });
-  }
-
-  /**
-   * @param {Asset} asset Neverball asset of a set file
-   * @returns AssetBundle
-   */
-  function getAssetsFromSetFile(asset) {
-    const imageAssets = createAssetList();
-    const solAssets = createAssetList();
-
-    const content = readAsset(asset).toString('utf8');
-    const lines = content.split(/\r?\n/);
-    const shot = lines[3] || '';
-    const sols = lines.slice(5);
-
-    if (shot) {
-      addAssetToList(imageAssets, shot, asset);
-    }
-
-    for (const sol of sols) {
-      if (sol) {
-        addAssetToList(solAssets, sol, asset);
+    for (const mtrl of sol.mtrls) {
+      if (!(mtrl.f === 'NULL' || mtrl.f === 'default')) {
+        materials.push(mtrl.f);
       }
     }
+  } catch (e) {
+    // unparseable SOL — return empty
+  }
 
+  return { images, audio, sols, materials };
+}
+
+/**
+ * Parse a set file (.txt) and return its direct asset dependencies.
+ * The path argument is unused by the default implementation.
+ *
+ * @param {string} path Neverball path of the set file
+ * @param {string} content
+ * @returns {{ images: string[], sols: string[], sets: string[] }}
+ */
+function parseSetFile(path, content) {
+  const lines = content.split(/\r?\n/).map(l => l.trim());
+  const filename = path.split('/').pop();
+
+  if (filename === 'sets.txt' || filename === 'courses.txt') {
     return {
-      imageAssets,
-      audioAssets: createAssetList(),
-      solAssets,
-      materialAssets: createAssetList(),
+      images: [],
+      sols: [],
+      sets: lines.filter(l => l && !l.startsWith('#')),
     };
   }
 
-  /**
-   * @param {Asset} asset Neverball asset of a SOL file
-   * @returns AssetBundle
-   */
-  function getAssetsFromSolFile(asset) {
-    const imageAssets = createAssetList();
-    const audioAssets = createAssetList();
-    const solAssets = createAssetList();
-    const materialAssets = createAssetList();
-
-    try {
-      const content = readAsset(asset);
-
-      if (content === null) {
-        throw new Error(asset.path + ' not found');
-      }
-
-      const sol = Solid(content);
-
-      if (sol.dicts.shot) {
-        addAssetToList(imageAssets, sol.dicts.shot, asset);
-      }
-
-      if (sol.dicts.song) {
-        addAssetToList(audioAssets, sol.dicts.song, asset);
-      }
-
-      if (sol.dicts.grad) {
-        addAssetToList(imageAssets, sol.dicts.grad, asset);
-      }
-
-      if (sol.dicts.back) {
-        addAssetToList(solAssets, sol.dicts.back, asset);
-      }
-
-      for (const mtrl of sol.mtrls) {
-        if (!(mtrl.f === 'NULL' || mtrl.f === 'default')) {
-          addAssetToList(materialAssets, mtrl.f, asset);
-        }
-      }
-    } catch (e) {
-      // console.error(e);
-    }
-
+  if (filename.startsWith('holes-') && filename.endsWith('.txt')) {
     return {
-      imageAssets,
-      audioAssets,
-      solAssets,
-      materialAssets,
+      images: [],
+      sols: [],
+      sets: [],
     };
   }
 
-  /**
-   * @param {AssetBundle} mainAssets
-   * @returns {AssetBundle} combined assets
-   */
-  function getAssetsRecursively(mainAssets) {
-    let combinedImages = mainAssets.imageAssets || createAssetList();
-    let combinedAudios = mainAssets.audioAssets || createAssetList();
-    let combinedSols = mainAssets.solAssets || createAssetList();
-    let combinedMaterials = mainAssets.materialAssets || createAssetList();
-
-    for (const [_, asset] of mainAssets.solAssets) {
-      const childAssets = getAssetsRecursively(getAssetsFromSolFile(asset));
-
-      combinedImages = new Map([...combinedImages, ...childAssets.imageAssets]);
-      combinedAudios = new Map([...combinedAudios, ...childAssets.audioAssets]);
-      combinedSols = new Map([...combinedSols, ...childAssets.solAssets]);
-      combinedMaterials = new Map([...combinedMaterials, ...childAssets.materialAssets]);
-    }
-
-    return {
-      imageAssets: combinedImages,
-      audioAssets: combinedAudios,
-      solAssets: combinedSols,
-      materialAssets: combinedMaterials,
-    };
-  }
-
-  /**
-   * Find actual material name (in case it lives under textures/).
-   * 
-   * @param {string} mtrl Neverball material name
-   * @returns {string?}
-   */
-  function findMaterialPath(mtrl) {
-    const mtrls = [
-      'textures/' + mtrl,
-      mtrl,
-    ];
-
-    for (const mtrlPath of mtrls) {
-      if (assetExists(mtrlPath)) {
-        return mtrlPath;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Find the image for a material.
-   * 
-   * @param {string} mtrl Neverball material name
-   * @returns {string?}
-   */
-  function findMaterialImagePath(mtrl) {
-    const images = [
-      'textures/' + mtrl + '.png',
-      'textures/' + mtrl + '.jpg',
-      mtrl + '.png',
-      mtrl + '.jpg',
-    ];
-
-    for (const materialImage of images) {
-      if (assetExists(materialImage)) {
-        return materialImage;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Recursively find all assets that a level set requires.
-   * 
-   * @param {Asset} asset set file asset
-   * @returns {AssetBundle}
-   */
-  function getAssetsRecursivelyFromSetFile(asset) {
-    /** @type {AssetBundle} */
-    const assets = getAssetsRecursively(getAssetsFromSetFile(asset));
-
-    return assets;
-  }
-
-  /**
-   * Check assets for existence.
-   * 
-   * @param {AssetBundle} assets
-   * 
-   * @returns {{foundAssets: Set<string>, missingAssets: AssetList}}
-   */
-  function checkAssets(assets) {
-    /** @type {Set<string>} */
-    const foundAssets = new Set();
-
-    const missingAssets = createAssetList();
-
-    let objAssets = createAssetList();
-
-    for (const [_, asset] of assets.imageAssets) {
-      if (!assetExists(asset.path)) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'image');
-      } else {
-        foundAssets.add(`image:${asset.path}`);
-      }
-    }
-
-    for (const [_, asset] of assets.audioAssets) {
-      if (!assetExists(asset.path)) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'audio');
-      } else {
-        foundAssets.add(`audio:${asset.path}`);
-      }
-    }
-
-    for (const [_, asset] of assets.solAssets) {
-      try {
-        const content = readAsset(asset);
-
-        if (content === null) {
-          throw `SOL file ${asset.path} not found`;
-        }
-
-        // Also check if we can load the SOL. This will throw an exception if not.
-        const sol = Solid(content);
-
-        foundAssets.add(`sol:${asset.path}`);
-      } catch (e) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'sol');
-      }
-
-      const mapPath = asset.path.replace(/\.sol$/, '.map');
-      /** @type {Asset} */
-      const mapAsset = {
-        path: mapPath,
-      };
-      const mapData = readAsset({ path: mapPath });
-
-      if (mapData === null) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'map'); // SOL path
-      } else {
-        foundAssets.add(`map:${mapPath}`);
-
-        // Find oBJ assets. OBJs are anonymous in the SOL, so we're parsing the .map.
-
-        const matches = mapData.toString().matchAll(/"model" +"([^"]+)"/g);
-        const mapObjs = new Map(
-          Array.from(matches).map(match => [
-            match[1], 
-            {
-              path: match[1],
-              parent: mapAsset
-            }
-          ])
-        );
-
-        objAssets = new Map([...objAssets, ...mapObjs]);
-      }
-    }
-
-    for (const [_, asset] of assets.materialAssets) {
-      const mtrlPath = findMaterialPath(asset.path);
-
-      if (!mtrlPath) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'material');
-      } else {
-        foundAssets.add(`material:${asset.path}`);
-      }
-
-      const mtrlImagePath = findMaterialImagePath(asset.path);
-
-      if (!mtrlImagePath) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'material-image'); // Material path
-      } else {
-        foundAssets.add(`material-image:${mtrlImagePath}`);
-      }
-    }
-
-    for (const [_, asset] of objAssets) {
-      if (!assetExists(asset.path)) {
-        addAssetToList(missingAssets, asset.path, asset.parent, 'obj');
-      } else {
-        foundAssets.add(`obj:${asset.path}`);
-      }
-    }
-
-    return { foundAssets, missingAssets };
-  }
+  const shot = lines[3] || '';
+  const sols = lines.slice(5).filter(Boolean);
 
   return {
-    check: function (setFile) {
-      const assets = getAssetsRecursivelyFromSetFile({
-        path: setFile,
-      });
-
-      return checkAssets(assets);
-    }
+    images: shot ? [shot] : [],
+    sols,
+    sets: [],
   };
 }
+
+/**
+ * Parse a .map file buffer and return the OBJ model paths it references.
+ * The path argument is unused by the default implementation.
+ *
+ * @param {string} path Neverball path of the .map file
+ * @param {Buffer} buffer
+ * @returns {string[]}
+ */
+function parseMap(path, buffer) {
+  const matches = buffer.toString().matchAll(/"model" +"([^"]+)"/g);
+  return [...new Set(Array.from(matches, m => m[1]))];
+}
+
+/**
+ * Return candidate file paths for a material name, in lookup order.
+ *
+ * @param {string} mtrl
+ * @returns {string[]}
+ */
+function materialPaths(mtrl) {
+  return ['textures/' + mtrl, mtrl];
+}
+
+/**
+ * Return candidate image paths for a material name, in lookup order.
+ *
+ * @param {string} mtrl
+ * @returns {string[]}
+ */
+function materialImagePaths(mtrl) {
+  return [
+    'textures/' + mtrl + '.png',
+    'textures/' + mtrl + '.jpg',
+    mtrl + '.png',
+    mtrl + '.jpg',
+  ];
+}
+
+// --- Pass 1: build deps ---
+
+/**
+ * @typedef {{ images: string[], audio: string[], sols: string[], sets: string[], materials: string[], objs: string[] }} DepEntry
+ */
+
+/**
+ * Recursively collect dependencies reachable from startPath.
+ *
+ * @param {string} startPath Neverball path to start from (set file or SOL)
+ * @param {{
+ *   readFile: (path: string) => Buffer|null,
+ *   fileExists?: (path: string) => boolean,
+ *   parseSol?: typeof parseSol,
+ *   parseSetFile?: typeof parseSetFile,
+ *   parseMap?: typeof parseMap,
+ * }} opts
+ * @returns {{ deps: Object.<string, DepEntry> }}
+ */
+function buildDeps(startPath, opts) {
+  const _readFile = opts.readFile;
+  const _fileExists = opts.fileExists || (p => _readFile(p) !== null);
+  const _parseSol = opts.parseSol || parseSol;
+  const _parseSetFile = opts.parseSetFile || parseSetFile;
+  const _parseMap = opts.parseMap || parseMap;
+
+  /** @type {Object.<string, DepEntry>} */
+  const deps = {};
+  const visited = new Set();
+
+  function visitMaterial(mtrl) {
+    if (deps[mtrl]) return;
+
+    const mtrlImage = materialImagePaths(mtrl).find(p => _fileExists(p));
+
+    deps[mtrl] = {
+      images: mtrlImage ? [mtrlImage] : [],
+      audio: [],
+      sols: [],
+      sets: [],
+      materials: [],
+      objs: [],
+    };
+  }
+
+  function visit(path) {
+    if (visited.has(path)) return;
+    visited.add(path);
+
+    const buf = _readFile(path);
+    if (!buf) return;
+
+    /** @type {DepEntry} */
+    let entry;
+
+    if (path.endsWith('.sol')) {
+      const { images, audio, sols, materials } = _parseSol(path, buf);
+
+      const mapPath = path.replace(/\.sol$/, '.map');
+      const mapBuf = _readFile(mapPath);
+      const objs = mapBuf ? _parseMap(mapPath, mapBuf) : [];
+
+      entry = { images, audio, sols, sets: [], materials, objs };
+
+      for (const mtrl of materials) {
+        visitMaterial(mtrl);
+      }
+    } else {
+      const { images, sols, sets } = _parseSetFile(path, buf.toString('utf8'));
+      entry = { images, audio: [], sols, sets, materials: [], objs: [] };
+    }
+
+    deps[path] = entry;
+
+    for (const sol of entry.sols) {
+      visit(sol);
+    }
+
+    for (const set of entry.sets) {
+      visit(set);
+    }
+  }
+
+  visit(startPath);
+
+  return { deps };
+}
+
+// --- Pass 2: pure check ---
+
+/**
+ * @typedef {Object} MissingAsset
+ * @property {string} path
+ * @property {{ path: string }|null} parent
+ * @property {string} type
+ */
+
+/**
+ * Check a set file's dependency tree against a known file set.
+ * Pure: no I/O, no callbacks.
+ *
+ * @param {string} setFile Neverball path of the set file to check
+ * @param {{ deps: Object.<string, DepEntry>, files: Set<string> }} structure
+ * @returns {{ missingAssets: Map<string, MissingAsset>, foundAssets: Set<string> }}
+ */
+function check(setFile, { deps, files }) {
+  /** @type {Map<string, MissingAsset>} */
+  const missingAssets = new Map();
+  const foundAssets = new Set();
+  const visited = new Set();
+
+  function markMissing(path, parent, type) {
+    missingAssets.set(path, { path, parent, type });
+  }
+
+  function traverse(path) {
+    if (visited.has(path)) return;
+    visited.add(path);
+
+    const entry = deps[path];
+    if (!entry) return;
+
+    const self = { path };
+
+    for (const img of entry.images) {
+      if (!files.has(img)) markMissing(img, self, 'image');
+      else foundAssets.add('image:' + img);
+    }
+
+    for (const aud of entry.audio) {
+      if (!files.has(aud)) markMissing(aud, self, 'audio');
+      else foundAssets.add('audio:' + aud);
+    }
+
+    for (const sol of entry.sols) {
+      const mapPath = sol.replace(/\.sol$/, '.map');
+
+      if (!files.has(sol)) markMissing(sol, self, 'sol');
+      else foundAssets.add('sol:' + sol);
+
+      if (!files.has(mapPath)) markMissing(sol, self, 'map'); // keyed on SOL path
+      else foundAssets.add('map:' + mapPath);
+
+      traverse(sol);
+    }
+
+    for (const set of entry.sets) {
+      const filename = set.split('/').pop();
+      const type = (filename.startsWith('holes-') && filename.endsWith('.txt')) ? 'course' : 'set';
+      if (!files.has(set)) markMissing(set, self, type);
+      else foundAssets.add(type + ':' + set);
+
+      traverse(set);
+    }
+
+    for (const mtrl of entry.materials) {
+      const mtrlPath = materialPaths(mtrl).find(p => files.has(p));
+      if (!mtrlPath) markMissing(mtrl, self, 'material');
+      else foundAssets.add('material:' + mtrlPath); // resolved path
+
+      const mtrlImg = materialImagePaths(mtrl).find(p => files.has(p));
+      if (!mtrlImg) markMissing(mtrl, self, 'material-image');
+      else foundAssets.add('material-image:' + mtrlImg);
+    }
+
+    for (const obj of entry.objs) {
+      if (!files.has(obj)) markMissing(obj, self, 'obj');
+      else foundAssets.add('obj:' + obj);
+    }
+  }
+
+  traverse(setFile);
+
+  return { missingAssets, foundAssets };
+}
+
+module.exports = check;
+module.exports.buildDeps = buildDeps;
+module.exports.parseSol = parseSol;
+module.exports.parseSetFile = parseSetFile;
+module.exports.parseMap = parseMap;
+module.exports.materialPaths = materialPaths;
+module.exports.materialImagePaths = materialImagePaths;
