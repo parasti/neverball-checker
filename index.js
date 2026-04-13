@@ -291,7 +291,56 @@ function check(setFile, { deps, files }) {
   return { missingAssets, foundAssets };
 }
 
+/**
+ * Validate all set files in an addon against a stock asset manifest.
+ *
+ * Handles the two-pass dep-build + check cycle that is common to both the
+ * browser validator and the CLI zip builder. Callers only need to supply how
+ * files are read and which paths exist in the addon; what to do with the
+ * results (render UI, build zips, …) is left to the caller.
+ *
+ * @param {{ files: string[], deps: Object.<string, DepEntry> }} stockAssets
+ *   Pre-computed manifest of base-game files and their dependency graph,
+ *   as produced by `neverball-checker --dump-deps`.
+ * @param {string[]} addonFiles
+ *   All file paths present in the addon (relative, Neverball-style).
+ * @param {(path: string) => Buffer|null} readFile
+ *   Read an addon file by its Neverball-relative path. Return null if absent.
+ * @returns {{
+ *   valid: boolean,
+ *   sets: Array<{
+ *     setFile: string,
+ *     slug: string,
+ *     missingAssets: Map<string, MissingAsset>,
+ *     foundAssets: Set<string>
+ *   }>
+ * }}
+ */
+function checkAddon(stockAssets, addonFiles, readFile) {
+  const setFiles = addonFiles.filter(p => /^set-[^/]+\.txt$/.test(p));
+
+  const addonDeps = Object.assign(
+    {},
+    ...setFiles.map(sf => buildDeps(sf, { readFile }).deps)
+  );
+
+  const combinedDeps  = { ...stockAssets.deps, ...addonDeps };
+  const combinedFiles = new Set([...stockAssets.files, ...addonFiles]);
+
+  const sets = setFiles.map(setFile => {
+    const slug = setFile.replace(/^set-(.+)\.txt$/, '$1');
+    const { missingAssets, foundAssets } = check(setFile, {
+      deps:  combinedDeps,
+      files: combinedFiles,
+    });
+    return { setFile, slug, missingAssets, foundAssets };
+  });
+
+  return { valid: sets.length > 0 && sets.every(s => s.missingAssets.size === 0), sets };
+}
+
 module.exports = check;
+module.exports.checkAddon = checkAddon;
 module.exports.buildDeps = buildDeps;
 module.exports.parseSol = parseSol;
 module.exports.parseSetFile = parseSetFile;

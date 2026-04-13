@@ -8,19 +8,12 @@ const fs = require('node:fs');
 const archiver = require('archiver');
 
 const check = require('.');
-const { buildDeps, parseSol, parseSetFile, parseMap, materialPaths, materialImagePaths } = check;
+const { checkAddon, buildDeps, parseSol, parseSetFile, parseMap, materialPaths, materialImagePaths } = check;
 
 if (process.argv.length < 3) {
     console.error('Usage: %s neverball-data set-file.txt [--zip]', process.argv[1]);
     console.error('       %s neverball-data --dump-deps', process.argv[1]);
-    process.exit(1);
-}
-
-/** @type {string} Path to Neverball base data */
-const baseDir = process.argv[2];
-
-if (!fs.existsSync(baseDir)) {
-    console.error('Base directory does not exist.');
+    console.error('       %s neverball-assets.json addon-dir/ [--zip]', process.argv[1]);
     process.exit(1);
 }
 
@@ -47,6 +40,113 @@ function* walkDir(dir, prefix = '') {
             yield [relPath, fullPath];
         }
     }
+}
+
+async function buildZip(slug, addonFileMap, stockFileSet, foundAssets) {
+    const zipPath = path.join(process.cwd(), 'set-' + slug + '.zip');
+
+    const referencedPaths = new Set(['set-' + slug + '.txt']);
+    for (const entry of foundAssets) {
+        referencedPaths.add(entry.slice(entry.indexOf(':') + 1));
+    }
+
+    return new Promise((resolve, reject) => {
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        const stream = fs.createWriteStream(zipPath);
+
+        archive.on('error', reject);
+        stream.on('close', () => resolve(zipPath));
+        archive.pipe(stream);
+
+        for (const filePath of referencedPaths) {
+            if (!addonFileMap.has(filePath) || stockFileSet.has(filePath)) continue;
+            archive.file(addonFileMap.get(filePath), { name: filePath });
+        }
+
+        archive.finalize();
+    });
+}
+
+// ---- manifest mode: neverball-assets.json addon-dir/ [--zip] ----
+
+if (process.argv[2].endsWith('.json')) {
+    const assetsJsonPath = process.argv[2];
+    const addonDir       = process.argv[3];
+    const createZip      = process.argv[4] === '--zip';
+
+    if (!addonDir) {
+        console.error('Usage: %s neverball-assets.json addon-dir/ [--zip]', process.argv[1]);
+        process.exit(1);
+    }
+
+    if (!fs.existsSync(addonDir)) {
+        console.error('Addon directory does not exist.');
+        process.exit(1);
+    }
+
+    const stockAssets = JSON.parse(fs.readFileSync(assetsJsonPath, 'utf8'));
+
+    const addonFileMap = new Map();
+    for (const [relPath, fullPath] of walkDir(addonDir)) {
+        addonFileMap.set(relPath, fullPath);
+    }
+
+    const readFile = p => {
+        const full = addonFileMap.get(p);
+        if (full) {
+            try { return fs.readFileSync(full); } catch { return null; }
+        }
+        return null;
+    };
+
+    const { sets } = checkAddon(stockAssets, [...addonFileMap.keys()], readFile);
+
+    if (sets.length === 0) {
+        console.error('No set-*.txt files found at addon root.');
+        process.exit(1);
+    }
+
+    (async () => {
+        let failed = false;
+        const stockFileSet = new Set(stockAssets.files);
+
+        for (const { slug, missingAssets, foundAssets } of sets) {
+            if (missingAssets.size > 0) {
+                for (const asset of missingAssets.values()) {
+                    console.error('not-found:' + asset.type + ':' + asset.path + ':' + (asset.parent?.path ?? '_'));
+                }
+                failed = true;
+                continue;
+            }
+
+            if (createZip) {
+                const zipPath = await buildZip(slug, addonFileMap, stockFileSet, foundAssets);
+                console.log('built:' + zipPath);
+            } else {
+                const referencedPaths = new Set(['set-' + slug + '.txt']);
+                for (const entry of foundAssets) {
+                    referencedPaths.add(entry.slice(entry.indexOf(':') + 1));
+                }
+                for (const filePath of referencedPaths) {
+                    if (!addonFileMap.has(filePath) || stockFileSet.has(filePath)) continue;
+                    console.log(addonFileMap.get(filePath));
+                }
+            }
+        }
+
+        process.exit(failed ? 1 : 0);
+    })();
+
+    return;
+}
+
+// ---- base-dir modes: neverball-data ... ----
+
+const baseDir = process.argv[2];
+
+if (!fs.existsSync(baseDir)) {
+    console.error('Base directory does not exist.');
+    process.exit(1);
 }
 
 // ---- dump-deps mode ----
